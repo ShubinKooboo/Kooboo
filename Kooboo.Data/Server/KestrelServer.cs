@@ -489,7 +489,6 @@ namespace Kooboo.Data.Server
 
                 if (response.StatusCode == 200)
                 {
-
                     if (response.Body != null && renderContext.Request.Method != "HEAD")
                     {
                         try
@@ -507,8 +506,12 @@ namespace Kooboo.Data.Server
                         if (response.Stream != null)
                         {
                             await response.Stream.CopyToAsync(res.Body);
+                        } 
+                        else if (response.FilePart != null)
+                        {
+                            await WritePartToResponse(response.FilePart, res);
                         }
-
+                          
                         else
                         {
                             // 404.   
@@ -636,6 +639,48 @@ namespace Kooboo.Data.Server
                 }
             }
 
+
+            private static async Task WritePartToResponse(Kooboo.IndexedDB.FilePart part, IHttpResponseFeature Res)
+            {
+                long offset = part.BlockPosition + part.RelativePosition;
+                //byte[] buffer = new byte[209715200];
+                byte[] buffer = new byte[8096];
+                long totalToSend = part.Length;
+                int count = 0;
+
+                Res.Headers["Content-Length"] = totalToSend.ToString();
+
+                long bytesRemaining = totalToSend;
+
+                var stream = Kooboo.IndexedDB.StreamManager.OpenReadStream(part.FullFileName);
+
+                stream.Position = offset;
+
+                try
+                {
+                    while (bytesRemaining > 0)
+                    {
+                        if (bytesRemaining <= buffer.Length)
+                            count = await stream.ReadAsync(buffer, 0, (int)bytesRemaining);
+                        else
+                            count = await stream.ReadAsync(buffer, 0, buffer.Length);
+
+                        if (count == 0)
+                            return;
+
+                        await Res.Body.WriteAsync(buffer, 0, count);
+
+                        bytesRemaining -= count;
+                    }
+                }
+                catch (IndexOutOfRangeException)
+                {
+                }
+                finally
+                {
+                    await Res.Body.FlushAsync();
+                }
+            }
         }
 
     }
